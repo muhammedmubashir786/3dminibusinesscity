@@ -1,0 +1,5 @@
+# Placeholder — run `supabase init` yourself inside /supabase after
+# creating your Supabase project at https://supabase.com/dashboard.
+# This file will be overwritten by the CLI with your real project_id.
+#
+# project_id = "your-project-ref"
