@@ -13,8 +13,14 @@ set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
 select 'merchant sees own products (expect 1):' as label, count(*) from public.products;
 
 reset role;
+reset request.jwt.claim.sub;
 
--- Now verify the merchant (as postgres/superuser, simulating an admin action)
+-- Now verify the merchant (as postgres/superuser, simulating an admin action).
+-- request.jwt.claim.sub must be cleared first — it's a session GUC, not
+-- tied to ROLE, so a prior test step's simulated customer JWT would
+-- otherwise still be "seen" by the protect_merchant_verification trigger
+-- even though we're now acting as postgres. Real Supabase clears this
+-- per-request via PostgREST; a raw psql session must do it explicitly.
 update public.merchants set verified = true where business_name = 'Kochi Mobile World';
 
 set role authenticated;

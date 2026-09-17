@@ -36,3 +36,24 @@ manually, then run scripts `01`–`04` as above.
 Payment RLS (Phase 4, not built), chat RLS (Phase 7), admin panel RLS beyond
 the `_all_admin` policies (exercised only structurally, not with a real
 admin user in this pass) — add scenarios here as those phases land.
+
+## 05_security_hardening.sql
+Added after an independent review (via a separate AI browsing agent) found
+two real bugs in the original four migrations, both confirmed and fixed
+here, then runtime-verified (not just statically reviewed):
+1. `merchants_update_own` had no protection on `verified`/`is_demo` — a
+   merchant could self-verify their own shop. Fixed with a trigger
+   (`protect_merchant_verification_trigger`) mirroring the pattern already
+   used on `profiles.role`.
+2. `orders_insert_own` let a customer insert an order with an arbitrary
+   `total_amount`/`status`/`is_demo` — the "server validates price" design
+   was never actually enforced by RLS. Fixed by removing the policy
+   entirely (no client-side order creation until a trusted server-side
+   checkout path is built in a later phase) plus a defense-in-depth
+   trigger.
+Also added: composite FK constraints so a cart/order item can't pair a
+product with another product's variant, and corrected partial unique
+indexes so duplicate cart rows (with or without a variant) are rejected
+while different variants of the same product coexist. All 8 assertions in
+`05_security_hardening.sql` pass against a real disposable Postgres —
+see the run log in `DECISIONS.md` / commit history for the actual output.

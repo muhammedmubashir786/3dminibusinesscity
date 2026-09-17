@@ -1,5 +1,5 @@
 {
-  "name": "virtual-angadi",
+  "name": "3dminibusinesscity",
   "private": true,
   "scripts": {
     "dev": "pnpm --filter web dev",
