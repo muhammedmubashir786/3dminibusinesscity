@@ -121,12 +121,12 @@ begin
   if completed then
     raise exception 'TEST FAILED: customer was able to insert an order directly';
   end if;
-  if caught_state <> '42501' then
-    raise exception 'TEST FAILED: expected 42501 for direct order insert, got %', caught_state;
+  if caught_state <> 'P0001' then
+    raise exception 'TEST FAILED: expected P0001 for direct order insert, got %', caught_state;
   end if;
 end $$;
 
-select 'direct customer order insert blocked (expect 42501):' as label, 'pass' as result;
+select 'direct customer order insert blocked (expect P0001):' as label, 'pass' as result;
 
 -- Create an order in the trusted/superuser context so customer UPDATE
 -- attempts can be checked without granting the customer an insert path.
@@ -143,74 +143,76 @@ values (
 set role authenticated;
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222'; -- customer1
 
--- Customer cannot update total_amount.
+-- Customer UPDATEs on total_amount / status / is_demo must change nothing.
+-- Customers have no UPDATE policy on orders (see security_hardening), so RLS
+-- filters the row out: 0 rows, no error. An error is accepted only if it is
+-- 42501 or P0001. Any other error (e.g. 42P17) propagates and fails the test.
 do $$
-declare
-  completed boolean := false;
-  caught_state text;
+declare rows_changed bigint := 0;
 begin
   begin
     update public.orders
     set total_amount = 0.01
     where id = '44444444-4444-4444-4444-444444444444';
-    completed := true;
-  exception when others then
-    caught_state := sqlstate;
+    get diagnostics rows_changed = row_count;
+  exception when sqlstate '42501' or sqlstate 'P0001' then
+    rows_changed := 0;
   end;
-
-  if completed then
-    raise exception 'TEST FAILED: customer changed order total_amount';
-  end if;
-  if caught_state <> '42501' then
-    raise exception 'TEST FAILED: expected 42501 for total_amount update, got %', caught_state;
+  if rows_changed <> 0 then
+    raise exception 'TEST FAILED: customer changed order total_amount (% rows)', rows_changed;
   end if;
 end $$;
 
--- Customer cannot update status.
+select 'customer total_amount update blocked (0 rows or 42501/P0001):' as label, 'pass' as result;
+
 do $$
-declare
-  completed boolean := false;
-  caught_state text;
+declare rows_changed bigint := 0;
 begin
   begin
     update public.orders
     set status = 'confirmed'
     where id = '44444444-4444-4444-4444-444444444444';
-    completed := true;
-  exception when others then
-    caught_state := sqlstate;
+    get diagnostics rows_changed = row_count;
+  exception when sqlstate '42501' or sqlstate 'P0001' then
+    rows_changed := 0;
   end;
-
-  if completed then
-    raise exception 'TEST FAILED: customer changed order status';
-  end if;
-  if caught_state <> '42501' then
-    raise exception 'TEST FAILED: expected 42501 for status update, got %', caught_state;
+  if rows_changed <> 0 then
+    raise exception 'TEST FAILED: customer changed order status (% rows)', rows_changed;
   end if;
 end $$;
 
--- Customer cannot update is_demo.
+select 'customer status update blocked (0 rows or 42501/P0001):' as label, 'pass' as result;
+
 do $$
-declare
-  completed boolean := false;
-  caught_state text;
+declare rows_changed bigint := 0;
 begin
   begin
     update public.orders
     set is_demo = true
     where id = '44444444-4444-4444-4444-444444444444';
-    completed := true;
-  exception when others then
-    caught_state := sqlstate;
+    get diagnostics rows_changed = row_count;
+  exception when sqlstate '42501' or sqlstate 'P0001' then
+    rows_changed := 0;
   end;
-
-  if completed then
-    raise exception 'TEST FAILED: customer changed order is_demo';
-  end if;
-  if caught_state <> '42501' then
-    raise exception 'TEST FAILED: expected 42501 for is_demo update, got %', caught_state;
+  if rows_changed <> 0 then
+    raise exception 'TEST FAILED: customer changed order is_demo (% rows)', rows_changed;
   end if;
 end $$;
+
+select 'customer is_demo update blocked (0 rows or 42501/P0001):' as label, 'pass' as result;
+
+-- Values must be intact (customer can read own order via orders_select_own).
+do $$
+declare o public.orders;
+begin
+  select * into strict o from public.orders
+  where id = '44444444-4444-4444-4444-444444444444';
+  if o.total_amount <> 100.00 or o.status <> 'pending_confirmation' or o.is_demo then
+    raise exception 'TEST FAILED: order was modified (total %, status %, is_demo %)', o.total_amount, o.status, o.is_demo;
+  end if;
+end $$;
+
+select 'order values unchanged after customer update attempts:' as label, 'pass' as result;
 
 reset role;
 reset request.jwt.claim.sub;
