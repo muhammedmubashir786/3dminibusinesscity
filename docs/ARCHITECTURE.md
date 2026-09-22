@@ -34,7 +34,7 @@ PostgreSQL (Supabase)
 /checkout
 ```
 
-## Database Schema — Phase 1 Draft (NOT applied — awaiting your approval)
+## Database Schema — Phase 1 (applied to local Supabase, tested; remote untouched)
 | Table | Purpose | Key fields |
 |---|---|---|
 | profiles | User account + role (customer/merchant/admin) | id, role, phone/email |
@@ -51,7 +51,7 @@ PostgreSQL (Supabase)
 
 `is_demo` boolean on merchants/shops/products enforces the Real Data Rule at the schema level — the UI reads this flag to render the "DEMO DATA" label rather than relying on convention alone. Money fields use `numeric`, not float. All tables get `created_at`/`updated_at`.
 
-RLS: customers can read all non-deleted products/shops but only their own cart/orders; merchants can read/write only their own shop/products/orders; admin bypasses via a separate policy, never via a client-trusted role flag. **Schema and RLS are proposed only — no migration is written or applied until you approve.**
+RLS: customers can read all non-deleted products/shops but only their own cart/orders; merchants can read/write only their own shop/products/orders; admin bypasses via a separate policy, never via a client-trusted role flag. **Schema and RLS are applied locally and verified by tests 01–06. Remote Supabase is not touched without explicit approval.**
 
 ## Security (Phase 1)
 Supabase Auth + Postgres RLS per role; server-side validation on every cart/checkout mutation (price and stock re-read from DB, never trusted from the request body); no service-role key in any client-bundled file; input validation on all route handlers; secrets only in environment variables.
