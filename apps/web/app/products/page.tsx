@@ -16,6 +16,8 @@ type ProductWithRelations = ProductRow & {
   shops: Pick<ShopRow, "name" | "slug"> | null;
 };
 
+type CategoryNavItem = Pick<CategoryRow, "name" | "slug">;
+
 function formatPrice(amount: number): string {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -24,10 +26,32 @@ function formatPrice(amount: number): string {
   }).format(amount);
 }
 
-export default async function ProductsPage() {
+export default async function ProductsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ category?: string | string[] }>;
+}) {
+  const params = await searchParams;
+  const categorySlug =
+    typeof params.category === "string" ? params.category : undefined;
+
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  // Small, separate query for the filter nav — always shows all 10
+  // approved categories, regardless of whether the current filter has
+  // matches, so a category with zero products is still browsable/linkable.
+  const { data: categoriesData } = await supabase
+    .from("categories")
+    .select("name, slug")
+    .order("name", { ascending: true })
+    .returns<CategoryNavItem[]>();
+
+  const categories = categoriesData ?? [];
+  const activeCategory = categorySlug
+    ? categories.find((c) => c.slug === categorySlug)
+    : undefined;
+
+  let query = supabase
     .from("products")
     .select(
       `
@@ -39,14 +63,26 @@ export default async function ProductsPage() {
       sale_price,
       is_demo,
       stock_status,
-      categories ( name, slug ),
+      categories!inner ( name, slug ),
       shops ( name, slug )
     `
     )
-    .order("name", { ascending: true })
-    .returns<ProductWithRelations[]>();
+    .order("name", { ascending: true });
+
+  // .eq on an embedded relation requires the !inner hint above to actually
+  // restrict which product rows come back (a plain embed only shapes the
+  // nested object, it doesn't filter parents). If categorySlug doesn't
+  // match any real category, this simply returns zero rows — no crash,
+  // handled by the existing empty state below.
+  if (categorySlug) {
+    query = query.eq("categories.slug", categorySlug);
+  }
+
+  const { data, error } = await query.returns<ProductWithRelations[]>();
 
   if (error) {
+    // Surface the real Postgres/RLS error rather than swallowing it —
+    // useful while the catalog is still sparse and RLS is still new.
     return (
       <main className="min-h-screen p-8">
         <h1 className="text-2xl font-semibold mb-4">Products</h1>
@@ -67,9 +103,38 @@ export default async function ProductsPage() {
             Products <span className="text-sm text-neutral-500">Kochi · Electronics, Mobile &amp; Technology</span>
           </h1>
           <p className="text-sm text-neutral-500 mt-1">
-            Showing {products.length} product{products.length === 1 ? "" : "s"} from verified shops.
+            Showing {products.length} product{products.length === 1 ? "" : "s"}
+            {activeCategory ? ` in ${activeCategory.name}` : " from verified shops"}.
           </p>
         </div>
+
+        <nav className="flex flex-wrap gap-2">
+          <a
+            href="/products"
+            className={
+              "text-xs px-3 py-1 rounded-full border " +
+              (!categorySlug
+                ? "bg-neutral-900 text-white border-neutral-900"
+                : "text-neutral-600 border-neutral-300 hover:border-neutral-400")
+            }
+          >
+            All
+          </a>
+          {categories.map((category) => (
+            <a
+              key={category.slug}
+              href={`/products?category=${category.slug}`}
+              className={
+                "text-xs px-3 py-1 rounded-full border " +
+                (categorySlug === category.slug
+                  ? "bg-neutral-900 text-white border-neutral-900"
+                  : "text-neutral-600 border-neutral-300 hover:border-neutral-400")
+              }
+            >
+              {category.name}
+            </a>
+          ))}
+        </nav>
 
         {products.length === 0 ? (
           <p className="text-sm text-neutral-500">
