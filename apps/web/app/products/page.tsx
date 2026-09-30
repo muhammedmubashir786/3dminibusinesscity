@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "../../lib/supabase/server";
 import type { Database } from "../../../../packages/types/src";
 
@@ -109,7 +110,7 @@ export default async function ProductsPage({
         </div>
 
         <nav className="flex flex-wrap gap-2">
-          <a
+          <Link
             href="/products"
             className={
               "text-xs px-3 py-1 rounded-full border " +
@@ -119,7 +120,7 @@ export default async function ProductsPage({
             }
           >
             All
-          </a>
+          </Link>
           {categories.map((category) => (
             <a
               key={category.slug}
@@ -149,7 +150,14 @@ export default async function ProductsPage({
               >
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="font-medium">{product.name}</h2>
+                    <h2 className="font-medium">
+                      <Link
+                        href={`/products/${product.id}`}
+                        className="hover:underline"
+                      >
+                        {product.name}
+                      </Link>
+                    </h2>
                     {product.is_demo && (
                       <span className="text-xs font-semibold uppercase tracking-wide bg-amber-100 text-amber-800 px-2 py-0.5 rounded">
                         Demo data
