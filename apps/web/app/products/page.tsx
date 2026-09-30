@@ -27,14 +27,43 @@ function formatPrice(amount: number): string {
   }).format(amount);
 }
 
+const MAX_SEARCH_LENGTH = 80;
+
+// Normalise the raw ?q= value for use inside a PostgREST .or() ilike filter.
+// Characters that are structural in the filter syntax (, ( ) " \) or act as
+// wildcards (% _ *) are dropped rather than escaped, so user input can never
+// alter the filter or turn into a wildcard. Whitespace is collapsed.
+function cleanSearchTerm(raw: string | undefined): string {
+  if (!raw) return "";
+  return raw
+    .replace(/[,()"\\%_*]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_SEARCH_LENGTH);
+}
+
+function productsHref(category?: string, q?: string): string {
+  const qs = new URLSearchParams();
+  if (category) qs.set("category", category);
+  if (q) qs.set("q", q);
+  const str = qs.toString();
+  return str ? `/products?${str}` : "/products";
+}
+
 export default async function ProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ category?: string | string[] }>;
+  searchParams: Promise<{
+    category?: string | string[];
+    q?: string | string[];
+  }>;
 }) {
   const params = await searchParams;
   const categorySlug =
     typeof params.category === "string" ? params.category : undefined;
+  const searchTerm = cleanSearchTerm(
+    typeof params.q === "string" ? params.q : undefined
+  );
 
   const supabase = await createClient();
 
@@ -79,6 +108,14 @@ export default async function ProductsPage({
     query = query.eq("categories.slug", categorySlug);
   }
 
+  // Search by name or brand (case-insensitive substring). Runs through the
+  // same RLS client, so only products the visitor may see can match.
+  if (searchTerm) {
+    query = query.or(
+      `name.ilike.*${searchTerm}*,brand.ilike.*${searchTerm}*`
+    );
+  }
+
   const { data, error } = await query.returns<ProductWithRelations[]>();
 
   if (error) {
@@ -105,13 +142,43 @@ export default async function ProductsPage({
           </h1>
           <p className="text-sm text-neutral-500 mt-1">
             Showing {products.length} product{products.length === 1 ? "" : "s"}
+            {searchTerm ? ` matching “${searchTerm}”` : ""}
             {activeCategory ? ` in ${activeCategory.name}` : " from verified shops"}.
           </p>
         </div>
 
+        <form action="/products" method="get" className="flex gap-2">
+          {categorySlug && (
+            <input type="hidden" name="category" value={categorySlug} />
+          )}
+          <input
+            type="search"
+            name="q"
+            defaultValue={searchTerm}
+            maxLength={MAX_SEARCH_LENGTH}
+            placeholder="Search by name or brand"
+            aria-label="Search products by name or brand"
+            className="flex-1 border rounded-lg px-3 py-1.5 text-sm"
+          />
+          <button
+            type="submit"
+            className="text-sm px-4 py-1.5 rounded-lg bg-neutral-900 text-white"
+          >
+            Search
+          </button>
+          {searchTerm && (
+            <Link
+              href={productsHref(categorySlug)}
+              className="text-sm px-3 py-1.5 text-neutral-600 hover:underline"
+            >
+              Clear
+            </Link>
+          )}
+        </form>
+
         <nav className="flex flex-wrap gap-2">
           <Link
-            href="/products"
+            href={productsHref(undefined, searchTerm)}
             className={
               "text-xs px-3 py-1 rounded-full border " +
               (!categorySlug
@@ -124,7 +191,7 @@ export default async function ProductsPage({
           {categories.map((category) => (
             <a
               key={category.slug}
-              href={`/products?category=${category.slug}`}
+              href={productsHref(category.slug, searchTerm)}
               className={
                 "text-xs px-3 py-1 rounded-full border " +
                 (categorySlug === category.slug
@@ -139,7 +206,9 @@ export default async function ProductsPage({
 
         {products.length === 0 ? (
           <p className="text-sm text-neutral-500">
-            No products available yet.
+            {searchTerm || categorySlug
+              ? "No products match your search or filter."
+              : "No products available yet."}
           </p>
         ) : (
           <ul className="space-y-4">
