@@ -222,7 +222,13 @@ export default async function ProductDetailPage({
 
         {product.shops?.name && (
           <p className="text-sm text-neutral-500">
-            Sold by {product.shops.name}
+            Sold by{" "}
+            <Link
+              href={`/shops/${encodeURIComponent(product.shops.slug)}`}
+              className="hover:underline"
+            >
+              {product.shops.name}
+            </Link>
           </p>
         )}
       </div>
