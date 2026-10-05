@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import ProductImage from "../../../components/ProductImage";
 import { createClient } from "../../../lib/supabase/server";
+import {
+  primaryProductImage,
+  type ProductImageData,
+} from "../../../lib/product-images";
 import type { Database } from "../../../../../packages/types/src";
 
 // Read-only shop page. Server Component: queries Supabase with the requesting
@@ -24,6 +29,7 @@ type ShopProduct = Pick<
   "id" | "name" | "brand" | "price" | "sale_price" | "is_demo" | "stock_status"
 > & {
   categories: Pick<CategoryRow, "name" | "slug"> | null;
+  product_images: ProductImageData[];
 };
 
 function formatPrice(amount: number): string {
@@ -83,7 +89,8 @@ export default async function ShopPage({
       sale_price,
       is_demo,
       stock_status,
-      categories ( name, slug )
+      categories ( name, slug ),
+      product_images ( storage_path, alt_text, position, is_primary )
     `
     )
     .eq("shop_id", shop.id)
@@ -137,9 +144,26 @@ export default async function ShopPage({
             {products.map((product) => (
               <li
                 key={product.id}
-                className="border rounded-lg p-4 flex items-start justify-between gap-4"
+                className="border rounded-lg p-4 flex items-start gap-4"
               >
-                <div>
+                {/* Decorative duplicate of the name link below: hidden from
+                    keyboard and screen readers so the product is not
+                    announced twice. */}
+                <Link
+                  href={`/products/${product.id}`}
+                  className="shrink-0"
+                  aria-hidden="true"
+                  tabIndex={-1}
+                >
+                  <ProductImage
+                    image={primaryProductImage(
+                      product.product_images,
+                      product.name
+                    )}
+                    variant="thumb"
+                  />
+                </Link>
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h2 className="font-medium">
                       <Link

@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import ProductImage from "../../../components/ProductImage";
 import { createClient } from "../../../lib/supabase/server";
+import {
+  primaryProductImage,
+  type ProductImageData,
+} from "../../../lib/product-images";
 import type { Database } from "../../../../../packages/types/src";
 
 // Read-only product detail page. Server Component: queries Supabase with the
@@ -28,6 +33,7 @@ type ProductDetail = Pick<
 > & {
   categories: Pick<CategoryRow, "name" | "slug"> | null;
   shops: Pick<ShopRow, "name" | "slug"> | null;
+  product_images: ProductImageData[];
 };
 
 // products.id is a uuid column: a malformed id makes Postgres throw 22P02
@@ -91,7 +97,8 @@ export default async function ProductDetailPage({
       stock_status,
       is_demo,
       categories ( name, slug ),
-      shops ( name, slug )
+      shops ( name, slug ),
+      product_images ( storage_path, alt_text, position, is_primary )
     `
     )
     .eq("id", id)
@@ -144,6 +151,11 @@ export default async function ProductDetailPage({
             </>
           )}
         </nav>
+
+        <ProductImage
+          image={primaryProductImage(product.product_images, product.name)}
+          variant="hero"
+        />
 
         <div className="space-y-2">
           <div className="flex items-center gap-2">
