@@ -56,3 +56,34 @@ export function primaryProductImage(
 
   return { src, alt: chosen.alt_text?.trim() || fallbackAlt };
 }
+
+/**
+ * All displayable images for a product, in gallery order: the primary image
+ * first, then by position. Rows whose URL cannot be built are dropped.
+ * Alt text falls back to "<name> (n of N)" when a row has none; with a
+ * single image it is just the product name.
+ */
+export function orderedProductImages(
+  images: ProductImageData[] | null | undefined,
+  fallbackAlt: string
+): ResolvedProductImage[] {
+  if (!images || images.length === 0) return [];
+
+  const sorted = [...images].sort((a, b) => {
+    if (a.is_primary !== b.is_primary) return a.is_primary ? -1 : 1;
+    return a.position - b.position;
+  });
+
+  const withUrl = sorted.flatMap((image) => {
+    const src = productImageUrl(image.storage_path);
+    return src ? [{ src, altText: image.alt_text?.trim() ?? "" }] : [];
+  });
+
+  const total = withUrl.length;
+  return withUrl.map(({ src, altText }, index) => ({
+    src,
+    alt:
+      altText ||
+      (total === 1 ? fallbackAlt : `${fallbackAlt} (${index + 1} of ${total})`),
+  }));
+}

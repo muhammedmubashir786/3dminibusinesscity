@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import ProductImage from "../../../components/ProductImage";
+import ProductGallery from "../../../components/ProductGallery";
 import { createClient } from "../../../lib/supabase/server";
 import {
-  primaryProductImage,
+  orderedProductImages,
   type ProductImageData,
 } from "../../../lib/product-images";
 import type { Database } from "../../../../../packages/types/src";
@@ -152,9 +152,8 @@ export default async function ProductDetailPage({
           )}
         </nav>
 
-        <ProductImage
-          image={primaryProductImage(product.product_images, product.name)}
-          variant="hero"
+        <ProductGallery
+          images={orderedProductImages(product.product_images, product.name)}
         />
 
         <div className="space-y-2">

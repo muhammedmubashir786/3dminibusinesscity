@@ -15,8 +15,13 @@ import type { ResolvedProductImage } from "../lib/product-images";
 
 type Props = {
   image: ResolvedProductImage | null;
-  /** "thumb": 80x80 card thumbnail. "hero": large image on the detail page. */
-  variant: "thumb" | "hero";
+  /**
+   * "thumb": 80x80 card/gallery thumbnail.
+   * "hero": large single image on the detail page.
+   * "gallery": large main image in a fixed-height box, so switching between
+   *   photos of different shapes does not move the layout.
+   */
+  variant: "thumb" | "hero" | "gallery";
 };
 
 const PLACEHOLDER_ICON = (
@@ -36,6 +41,19 @@ const PLACEHOLDER_ICON = (
   </svg>
 );
 
+const BOX_CLASS = {
+  thumb: "w-20 h-20 rounded-md bg-neutral-100 flex items-center justify-center",
+  hero: "border rounded-lg bg-neutral-50 flex items-center justify-center h-48",
+  gallery:
+    "border rounded-lg bg-neutral-50 flex items-center justify-center h-72 sm:h-96",
+} as const;
+
+const ICON_CLASS = {
+  thumb: "w-8 h-8 block",
+  hero: "w-12 h-12 block",
+  gallery: "w-12 h-12 block",
+} as const;
+
 export default function ProductImage({ image, variant }: Props) {
   const [failed, setFailed] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -49,10 +67,20 @@ export default function ProductImage({ image, variant }: Props) {
     setFailed(Boolean(el && el.complete && el.naturalWidth === 0));
   }, [src]);
 
-  const showImage = image !== null && !failed;
+  if (image === null || failed) {
+    return (
+      <div
+        role="img"
+        aria-label="No image available"
+        className={BOX_CLASS[variant]}
+      >
+        <span className={ICON_CLASS[variant]}>{PLACEHOLDER_ICON}</span>
+      </div>
+    );
+  }
 
   if (variant === "thumb") {
-    return showImage ? (
+    return (
       // eslint-disable-next-line @next/next/no-img-element -- see note above
       <img
         ref={imgRef}
@@ -64,18 +92,27 @@ export default function ProductImage({ image, variant }: Props) {
         onError={() => setFailed(true)}
         className="w-20 h-20 object-cover rounded-md bg-neutral-100"
       />
-    ) : (
-      <div
-        role="img"
-        aria-label="No image available"
-        className="w-20 h-20 rounded-md bg-neutral-100 flex items-center justify-center"
-      >
-        <span className="w-8 h-8 block">{PLACEHOLDER_ICON}</span>
+    );
+  }
+
+  if (variant === "gallery") {
+    return (
+      <div className="border rounded-lg overflow-hidden bg-neutral-50 flex items-center justify-center h-72 sm:h-96">
+        {/* eslint-disable-next-line @next/next/no-img-element -- see note above */}
+        <img
+          ref={imgRef}
+          src={image.src}
+          alt={image.alt}
+          width={768}
+          height={432}
+          onError={() => setFailed(true)}
+          className="max-h-full max-w-full object-contain"
+        />
       </div>
     );
   }
 
-  return showImage ? (
+  return (
     <div className="border rounded-lg overflow-hidden bg-neutral-50">
       {/* eslint-disable-next-line @next/next/no-img-element -- see note above */}
       <img
@@ -87,14 +124,6 @@ export default function ProductImage({ image, variant }: Props) {
         onError={() => setFailed(true)}
         className="w-full max-h-96 object-contain"
       />
-    </div>
-  ) : (
-    <div
-      role="img"
-      aria-label="No image available"
-      className="border rounded-lg bg-neutral-50 flex items-center justify-center h-48"
-    >
-      <span className="w-12 h-12 block">{PLACEHOLDER_ICON}</span>
     </div>
   );
 }
