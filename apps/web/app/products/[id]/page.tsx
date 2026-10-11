@@ -6,6 +6,18 @@ import {
   orderedProductImages,
   type ProductImageData,
 } from "../../../lib/product-images";
+import {
+  availabilityLabel,
+  combinedAvailability,
+  hiddenSpecKeys,
+  priceSummary,
+  selectedVariantId,
+  sortedVariants,
+  variantAvailability,
+  variantLabel,
+  type Availability,
+  type ProductVariantData,
+} from "../../../lib/product-variants";
 import type { Database } from "../../../../../packages/types/src";
 
 // Read-only product detail page. Server Component: queries Supabase with the
@@ -34,6 +46,7 @@ type ProductDetail = Pick<
   categories: Pick<CategoryRow, "name" | "slug"> | null;
   shops: Pick<ShopRow, "name" | "slug"> | null;
   product_images: ProductImageData[];
+  product_variants: ProductVariantData[];
 };
 
 // products.id is a uuid column: a malformed id makes Postgres throw 22P02
@@ -116,11 +129,17 @@ function specLabel(key: string): string {
     .join(" ");
 }
 
-function specEntries(specs: ProductRow["specifications"]): [string, string][] {
+// `hiddenKeys` holds lower-case raw keys (e.g. "ram") that product variants
+// already control, so those duplicate rows are left out.
+function specEntries(
+  specs: ProductRow["specifications"],
+  hiddenKeys?: ReadonlySet<string>
+): [string, string][] {
   if (specs === null || typeof specs !== "object" || Array.isArray(specs)) {
     return [];
   }
   return Object.entries(specs)
+    .filter(([key]) => !hiddenKeys?.has(key.trim().toLowerCase()))
     .filter(([, value]) => value !== null && value !== undefined)
     .map(([key, value]): [string, string] => [
       specLabel(key),
@@ -131,12 +150,21 @@ function specEntries(specs: ProductRow["specifications"]): [string, string][] {
 
 // --- pure helpers end ---
 
+const AVAILABILITY_CLASS: Record<Availability, string> = {
+  in_stock: "text-green-700",
+  out_of_stock: "text-neutral-500",
+  not_listed: "text-neutral-500",
+};
+
 export default async function ProductDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ variant?: string | string[] }>;
 }) {
   const { id } = await params;
+  const { variant: variantParam } = await searchParams;
 
   if (!UUID_RE.test(id)) {
     notFound();
@@ -161,7 +189,8 @@ export default async function ProductDetailPage({
       is_demo,
       categories ( name, slug ),
       shops ( name, slug ),
-      product_images ( storage_path, alt_text, position, is_primary )
+      product_images ( storage_path, alt_text, position, is_primary ),
+      product_variants ( id, sku, storage, ram, color, model, price, inventory ( quantity ) )
     `
     )
     .eq("id", id)
@@ -191,8 +220,29 @@ export default async function ProductDetailPage({
   }
 
   const product = data;
-  const discount = discountInfo(product.price, product.sale_price);
-  const specs = specEntries(product.specifications);
+
+  // Variants: when a product has them, they decide price and availability and
+  // the product-level sale_price is ignored (variants have no sale_price yet).
+  const variants = sortedVariants(product.product_variants);
+  const hasVariants = variants.length > 0;
+  const selectedId = hasVariants
+    ? selectedVariantId(variantParam, variants)
+    : null;
+  const selected = variants.find((variant) => variant.id === selectedId);
+  const variantPrices = hasVariants ? priceSummary(variants) : null;
+  const availability: Availability | null = !hasVariants
+    ? null
+    : selected
+      ? variantAvailability(selected.inventory)
+      : combinedAvailability(variants);
+
+  const discount = hasVariants
+    ? null
+    : discountInfo(product.price, product.sale_price);
+  const specs = specEntries(
+    product.specifications,
+    hasVariants ? hiddenSpecKeys(variants) : undefined
+  );
 
   return (
     <main className="min-h-screen p-8">
@@ -265,7 +315,24 @@ export default async function ProductDetailPage({
 
             <div className="border rounded-lg p-4 flex items-end justify-between gap-4">
               <div className="space-y-1">
-                {discount ? (
+                {hasVariants ? (
+                  <>
+                    <p className="text-2xl font-semibold">
+                      {selected
+                        ? formatPrice(selected.price)
+                        : variantPrices
+                          ? `${variantPrices.allSame ? "" : "From "}${formatPrice(
+                              variantPrices.lowest
+                            )}`
+                          : "Price not available"}
+                    </p>
+                    {selected && (
+                      <p className="text-sm text-neutral-500 break-words">
+                        {variantLabel(selected)}
+                      </p>
+                    )}
+                  </>
+                ) : discount ? (
                   <>
                     <p className="text-2xl font-semibold">
                       {formatPrice(discount.salePrice)}
@@ -289,17 +356,84 @@ export default async function ProductDetailPage({
                   </p>
                 )}
               </div>
-              <p
-                className={
-                  "text-sm shrink-0 " +
-                  (product.stock_status === "in_stock"
-                    ? "text-green-700"
-                    : "text-neutral-500")
-                }
-              >
-                {stockLabel(product.stock_status)}
-              </p>
+              {availability !== null ? (
+                <p
+                  className={
+                    "text-sm shrink-0 text-right " +
+                    AVAILABILITY_CLASS[availability]
+                  }
+                >
+                  {availabilityLabel(availability)}
+                </p>
+              ) : (
+                <p
+                  className={
+                    "text-sm shrink-0 " +
+                    (product.stock_status === "in_stock"
+                      ? "text-green-700"
+                      : "text-neutral-500")
+                  }
+                >
+                  {stockLabel(product.stock_status)}
+                </p>
+              )}
             </div>
+
+            {hasVariants && (
+              <section className="space-y-2" aria-labelledby="variant-options">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 id="variant-options" className="font-medium">
+                    Choose an option
+                  </h2>
+                  {selected && (
+                    <Link
+                      href={`/products/${product.id}`}
+                      scroll={false}
+                      className="text-sm text-neutral-500 hover:underline"
+                    >
+                      Clear selection
+                    </Link>
+                  )}
+                </div>
+                <ul className="space-y-2">
+                  {variants.map((variant) => {
+                    const isSelected = variant.id === selectedId;
+                    const state = variantAvailability(variant.inventory);
+                    return (
+                      <li key={variant.id}>
+                        <Link
+                          href={`/products/${product.id}?variant=${variant.id}`}
+                          scroll={false}
+                          aria-current={isSelected ? "true" : undefined}
+                          className={
+                            "flex items-start justify-between gap-4 rounded-lg border p-3 text-sm hover:border-neutral-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-900 " +
+                            (isSelected
+                              ? "border-neutral-900 ring-1 ring-neutral-900"
+                              : "")
+                          }
+                        >
+                          <span className="min-w-0 break-words">
+                            {variantLabel(variant)}
+                          </span>
+                          <span className="shrink-0 text-right">
+                            <span className="block font-medium">
+                              {formatPrice(variant.price)}
+                            </span>
+                            <span
+                              className={
+                                "block text-xs " + AVAILABILITY_CLASS[state]
+                              }
+                            >
+                              {availabilityLabel(state)}
+                            </span>
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
 
             {product.description && (
               <section className="space-y-1">
