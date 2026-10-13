@@ -1,5 +1,6 @@
-// Helpers for product variants on the product detail page. Pure and
-// server-safe: no React, no browser APIs, no Supabase client.
+// Helpers for product variants and for catalog pricing/availability, shared by
+// the product detail page, /products and /shops/[slug]. Pure and server-safe:
+// no React, no browser APIs, no Supabase client.
 //
 // Data model (see supabase/migrations/20260916093456_categories_products.sql):
 //   - product_variants: sku, storage, ram, color, model, price (no sale_price)
@@ -59,16 +60,36 @@ export function sortedVariants<T extends { price: number; sku: string }>(
 }
 
 /**
+ * A price usable for display, or null. Accepts a finite, non-negative number,
+ * or a string holding one (numeric columns may arrive as strings). null,
+ * undefined, "", whitespace, NaN, Infinity and negative values are rejected
+ * rather than being coerced to 0.
+ */
+function usablePrice(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "") return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }
+  return null;
+}
+
+/**
  * Lowest variant price, and whether every variant has that same price (in
- * which case the page shows a plain price instead of "From ₹X"). Null when
- * there is no usable price.
+ * which case the page shows a plain price instead of "From ₹X"). Variants
+ * without a usable price (null, empty, negative, NaN) are ignored. Null when
+ * there is no usable price at all.
  */
 export function priceSummary(
-  variants: ReadonlyArray<{ price: number }>
+  variants: ReadonlyArray<{ price: number | string | null | undefined }>
 ): { lowest: number; allSame: boolean } | null {
   const prices = variants
-    .map((variant) => Number(variant.price))
-    .filter((price) => Number.isFinite(price));
+    .map((variant) => usablePrice(variant?.price))
+    .filter((price): price is number => price !== null);
   if (prices.length === 0) return null;
   const lowest = Math.min(...prices);
   return { lowest, allSame: prices.every((price) => price === lowest) };
@@ -103,7 +124,7 @@ export function combinedAvailability(
   variants: ReadonlyArray<Pick<ProductVariantData, "inventory">>
 ): Availability {
   const states = variants.map((variant) =>
-    variantAvailability(variant.inventory)
+    variantAvailability(variant?.inventory)
   );
   if (states.some((state) => state === "in_stock")) return "in_stock";
   if (states.length > 0 && states.every((state) => state === "out_of_stock")) {
@@ -150,4 +171,92 @@ export function hiddenSpecKeys(
   if (variants.some((variant) => clean(variant.ram))) hidden.add("ram");
   if (variants.some((variant) => clean(variant.storage))) hidden.add("storage");
   return hidden;
+}
+
+export type Discount = {
+  salePrice: number;
+  savings: number;
+  /** Whole-number percent off, or null when it would round to 0%. */
+  percent: number | null;
+};
+
+/**
+ * A discount is shown only when 0 < sale_price < price. The database allows
+ * sale_price = 0 and sale_price >= price, so those (and null / non-finite
+ * values) must be treated as "no sale" rather than shown as a discount.
+ * `price` is the regular price; the schema does not call it an MRP.
+ */
+export function discountInfo(
+  price: number,
+  salePrice: number | null | undefined
+): Discount | null {
+  if (salePrice == null) return null;
+  if (!Number.isFinite(price) || !Number.isFinite(salePrice)) return null;
+  if (!(salePrice > 0 && salePrice < price)) return null;
+  const savings = Math.round((price - salePrice) * 100) / 100;
+  // price > salePrice > 0 here, so the division is safe.
+  const percent = Math.round((savings / price) * 100);
+  return { salePrice, savings, percent: percent >= 1 ? percent : null };
+}
+
+/** The columns a listing page selects for each embedded variant. */
+export type CatalogVariant = {
+  price: number | string | null | undefined;
+  inventory: ProductVariantData["inventory"];
+};
+
+/** What a listing row shows as the price. */
+export type CatalogPrice =
+  /** No variants: products.price, with a sale presentation when valid. */
+  | { kind: "single"; price: number; discount: Discount | null }
+  /** Variants decide the price; `from` is true when prices differ. */
+  | { kind: "variants"; amount: number; from: boolean }
+  /** Variants exist but none has a usable price. */
+  | { kind: "unavailable" };
+
+export type CatalogSummary = {
+  price: CatalogPrice;
+  /**
+   * Availability derived from variant inventory, or null when the product has
+   * no variants (callers then keep their product-level stock_status behavior).
+   */
+  availability: Availability | null;
+};
+
+/**
+ * One place for the pricing and availability rules shown on /products and
+ * /shops/[slug] (the detail page applies the same rules to the same helpers):
+ *   - no (or null/empty) variants -> products.price and the valid sale_price
+ *     presentation; availability stays product-level (null here)
+ *   - variants -> lowest usable variant price ("From" only when prices differ);
+ *     product-level sale_price is ignored; availability comes from variant
+ *     inventory and never falls back to products.stock_status
+ */
+export function catalogSummary(product: {
+  price: number;
+  sale_price: number | null | undefined;
+  product_variants?: ReadonlyArray<CatalogVariant> | null;
+}): CatalogSummary {
+  const variants = Array.isArray(product.product_variants)
+    ? product.product_variants
+    : [];
+
+  if (variants.length === 0) {
+    return {
+      price: {
+        kind: "single",
+        price: product.price,
+        discount: discountInfo(product.price, product.sale_price),
+      },
+      availability: null,
+    };
+  }
+
+  const summary = priceSummary(variants);
+  return {
+    price: summary
+      ? { kind: "variants", amount: summary.lowest, from: !summary.allSame }
+      : { kind: "unavailable" },
+    availability: combinedAvailability(variants),
+  };
 }

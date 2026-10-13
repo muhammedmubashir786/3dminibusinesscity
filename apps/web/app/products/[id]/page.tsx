@@ -9,6 +9,7 @@ import {
 import {
   availabilityLabel,
   combinedAvailability,
+  discountInfo,
   hiddenSpecKeys,
   priceSummary,
   selectedVariantId,
@@ -71,29 +72,8 @@ function stockLabel(status: string): string {
 
 // --- pure helpers start (kept free of imports/JSX so they can be tested) ---
 
-type Discount = {
-  salePrice: number;
-  savings: number;
-  /** Whole-number percent off, or null when it would round to 0%. */
-  percent: number | null;
-};
-
-// A discount is shown only when 0 < sale_price < price. The database allows
-// sale_price = 0 and sale_price >= price, so those (and null / non-finite
-// values) must be treated as "no sale" rather than shown as a discount.
-// `price` is the regular price; the schema does not call it an MRP.
-function discountInfo(
-  price: number,
-  salePrice: number | null | undefined
-): Discount | null {
-  if (salePrice == null) return null;
-  if (!Number.isFinite(price) || !Number.isFinite(salePrice)) return null;
-  if (!(salePrice > 0 && salePrice < price)) return null;
-  const savings = Math.round((price - salePrice) * 100) / 100;
-  // price > salePrice > 0 here, so the division is safe.
-  const percent = Math.round((savings / price) * 100);
-  return { salePrice, savings, percent: percent >= 1 ? percent : null };
-}
+// discountInfo (valid sale = 0 < sale_price < price) now lives in
+// lib/product-variants so the listings use the same rule.
 
 const SPEC_ACRONYMS = new Set([
   "ram",

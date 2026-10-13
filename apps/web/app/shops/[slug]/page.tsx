@@ -6,6 +6,11 @@ import {
   primaryProductImage,
   type ProductImageData,
 } from "../../../lib/product-images";
+import {
+  availabilityLabel,
+  catalogSummary,
+  type CatalogVariant,
+} from "../../../lib/product-variants";
 import type { Database } from "../../../../../packages/types/src";
 
 // Read-only shop page. Server Component: queries Supabase with the requesting
@@ -30,6 +35,7 @@ type ShopProduct = Pick<
 > & {
   categories: Pick<CategoryRow, "name" | "slug"> | null;
   product_images: ProductImageData[];
+  product_variants: CatalogVariant[];
 };
 
 function formatPrice(amount: number): string {
@@ -90,7 +96,8 @@ export default async function ShopPage({
       is_demo,
       stock_status,
       categories ( name, slug ),
-      product_images ( storage_path, alt_text, position, is_primary )
+      product_images ( storage_path, alt_text, position, is_primary ),
+      product_variants ( price, inventory ( quantity ) )
     `
     )
     .eq("shop_id", shop.id)
@@ -98,6 +105,12 @@ export default async function ShopPage({
     .returns<ShopProduct[]>();
 
   const products = productsData ?? [];
+  // Pricing and availability follow the shared rules in lib/product-variants
+  // (the same ones /products and the detail page use).
+  const rows = products.map((product) => ({
+    product,
+    summary: catalogSummary(product),
+  }));
 
   const address = shop.address ?? "";
   const city = shop.city ?? "";
@@ -141,7 +154,7 @@ export default async function ShopPage({
           <p className="text-sm text-neutral-500">No products listed yet.</p>
         ) : (
           <ul className="space-y-4">
-            {products.map((product) => (
+            {rows.map(({ product, summary }) => (
               <li
                 key={product.id}
                 className="border rounded-lg p-4 flex items-start gap-4"
@@ -183,28 +196,43 @@ export default async function ShopPage({
                     {product.brand ? `${product.brand} · ` : ""}
                     {product.categories?.name ?? "Uncategorised"}
                   </p>
-                  {product.stock_status !== "in_stock" && (
+                  {summary.availability !== null ? (
                     <p className="text-xs text-neutral-400 mt-1">
-                      {product.stock_status === "out_of_stock"
-                        ? "Out of stock"
-                        : "Low stock"}
+                      {availabilityLabel(summary.availability)}
                     </p>
+                  ) : (
+                    product.stock_status !== "in_stock" && (
+                      <p className="text-xs text-neutral-400 mt-1">
+                        {product.stock_status === "out_of_stock"
+                          ? "Out of stock"
+                          : "Low stock"}
+                      </p>
+                    )
                   )}
                 </div>
                 <div className="text-right shrink-0">
-                  {product.sale_price != null &&
-                  product.sale_price < product.price ? (
+                  {summary.price.kind === "variants" ? (
+                    <p className="font-semibold">
+                      {`${summary.price.from ? "From " : ""}${formatPrice(
+                        summary.price.amount
+                      )}`}
+                    </p>
+                  ) : summary.price.kind === "unavailable" ? (
+                    <p className="text-sm text-neutral-500">
+                      Price not available
+                    </p>
+                  ) : summary.price.discount ? (
                     <>
                       <p className="font-semibold">
-                        {formatPrice(product.sale_price)}
+                        {formatPrice(summary.price.discount.salePrice)}
                       </p>
                       <p className="text-sm text-neutral-400 line-through">
-                        {formatPrice(product.price)}
+                        {formatPrice(summary.price.price)}
                       </p>
                     </>
                   ) : (
                     <p className="font-semibold">
-                      {formatPrice(product.price)}
+                      {formatPrice(summary.price.price)}
                     </p>
                   )}
                 </div>
