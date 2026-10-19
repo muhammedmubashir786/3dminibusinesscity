@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import AddToCartButton from "../../../components/AddToCartButton";
 import ProductGallery from "../../../components/ProductGallery";
 import { createClient } from "../../../lib/supabase/server";
 import {
@@ -224,6 +225,35 @@ export default async function ProductDetailPage({
     hasVariants ? hiddenSpecKeys(variants) : undefined
   );
 
+  let isAddToCartDisabled = false;
+  let addToCartDisabledReason: string | undefined;
+  let selectedStock: number | undefined;
+
+  if (hasVariants) {
+    if (!selected) {
+      isAddToCartDisabled = true;
+      addToCartDisabledReason = "Please select an option";
+    } else {
+      const state = variantAvailability(selected.inventory);
+      if (state !== "in_stock") {
+        isAddToCartDisabled = true;
+        addToCartDisabledReason = availabilityLabel(state);
+      } else {
+        const invRow = Array.isArray(selected.inventory)
+          ? selected.inventory[0]
+          : selected.inventory;
+        if (invRow && Number.isFinite(Number(invRow.quantity))) {
+          selectedStock = Number(invRow.quantity);
+        }
+      }
+    }
+  } else {
+    if (product.stock_status !== "in_stock") {
+      isAddToCartDisabled = true;
+      addToCartDisabledReason = stockLabel(product.stock_status);
+    }
+  }
+
   return (
     <main className="min-h-screen p-8">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -414,6 +444,16 @@ export default async function ProductDetailPage({
                 </ul>
               </section>
             )}
+
+            <div>
+              <AddToCartButton
+                productId={product.id}
+                variantId={selected ? selected.id : null}
+                disabled={isAddToCartDisabled}
+                disabledReason={addToCartDisabledReason}
+                maxStock={selectedStock}
+              />
+            </div>
 
             {product.description && (
               <section className="space-y-1">
